@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "enabled": true,
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./notes"
+      ],
+      "env": {},
+      "description": "Provides filesystem access to the notes directory for document ingestion"
+    }
+  }
+}

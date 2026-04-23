@@ -1,0 +1,92 @@
+from typing import Annotated, TypedDict
+
+from typing_extensions import NotRequired
+
+from langgraph.graph.message import add_messages
+
+
+class WrongQuestionData(TypedDict):
+    """Data structure for a single wrong question record."""
+
+    content: str
+    user_answer: str
+    correct_answer: str
+
+
+def merge_docs(existing: list[str] | None, new: list[str] | None) -> list[str]:
+    """Reducer for documents list - merges and deduplicates documents."""
+    if existing is None:
+        return new or []
+    if new is None:
+        return existing
+    # Use dict.fromkeys to deduplicate while preserving order
+    return list(dict.fromkeys(existing + new))
+
+
+def merge_wrong_questions(
+    existing: dict[str, WrongQuestionData] | None,
+    new: dict[str, WrongQuestionData] | None,
+) -> dict[str, WrongQuestionData]:
+    """Reducer for wrong_questions dict - merges question dictionaries.
+
+    New values override existing ones for same keys (question_id).
+    """
+    if existing is None:
+        return new or {}
+    if new is None:
+        return existing
+    # Merge dictionaries, new values override existing ones for same keys
+    return {**existing, **new}
+
+
+class EpistoState(TypedDict):
+    """Core state schema for the Episto multi-agent system.
+
+    This TypedDict defines the data contract that flows through the graph.
+    Each field uses either a custom reducer (for merge semantics) or the
+    default overwrite behavior.
+
+    Fields:
+        messages: Conversation history, automatically appended via add_messages.
+        remaining_steps: Step counter used internally by create_react_agent to
+            limit the number of reasoning-tool cycles.
+        documents_loaded: List of loaded document identifiers (deduplicated).
+        wrong_questions: Dictionary of wrong question records (merged by key).
+    """
+
+    messages: Annotated[list, add_messages]
+    remaining_steps: NotRequired[int]
+    documents_loaded: Annotated[list[str], merge_docs]
+    wrong_questions: Annotated[dict[str, WrongQuestionData], merge_wrong_questions]
+
+
+if __name__ == "__main__":
+    # --- Test merge_docs reducer ---
+    print("=== Testing merge_docs ===")
+    result = merge_docs(None, ["doc1.pdf", "doc2.pdf"])
+    print(f"merge_docs(None, ['doc1.pdf', 'doc2.pdf']) -> {result}")
+
+    result = merge_docs(result, ["doc3.pdf", "doc1.pdf"])
+    print(f"merge_docs(previous, ['doc3.pdf', 'doc1.pdf']) -> {result}")
+    assert result == ["doc1.pdf", "doc2.pdf", "doc3.pdf"], "dedup failed"
+
+    # --- Test merge_wrong_questions reducer ---
+    print("\n=== Testing merge_wrong_questions ===")
+    q1: WrongQuestionData = {
+        "content": "What is gradient descent?",
+        "user_answer": "A classification algorithm",
+        "correct_answer": "An optimization algorithm",
+    }
+    q2: WrongQuestionData = {
+        "content": "What is SVM?",
+        "user_answer": "A neural network",
+        "correct_answer": "A support vector machine",
+    }
+    result_dict = merge_wrong_questions(None, {"q1": q1})
+    print(f"After first append: {list(result_dict.keys())}")
+
+    result_dict = merge_wrong_questions(result_dict, {"q2": q2})
+    print(f"After second append: {list(result_dict.keys())}")
+    assert len(result_dict) == 2, "merge_wrong_questions should accumulate"
+
+    print("\nAll state reducer tests passed!")

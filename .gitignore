@@ -1,0 +1,19 @@
+.env
+read.md
+report.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# ChromaDB
+chroma_db/
+
+# Windows
+nul
+Thumbs.db
+
+# IDE
+.vscode/

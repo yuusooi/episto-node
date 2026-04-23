@@ -1,6 +1,7 @@
 .env
 read.md
 report.md
+tree.md
 
 # Python
 __pycache__/

@@ -24,6 +24,7 @@ import sys
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 # Fix: conda env sets SSL_CERT_FILE to a non-existent path
@@ -36,6 +37,7 @@ from episto.agent.state import EpistoState  # noqa: E402
 from episto.mcp.tools import get_cached_mcp_tools  # noqa: E402
 from episto.tools.builtins.delegate import (  # noqa: E402
     delegate_to_examiner,
+    delegate_to_grader,
     delegate_to_ingestor,
     delegate_to_tutor,
 )
@@ -56,8 +58,15 @@ SYSTEM_PROMPT = """\
    - 用户想上传/处理/解析文档 -> delegate_to_ingestor
    - 用户想学习/理解某个知识点 -> delegate_to_tutor
    - 用户想做题/考试/练习 -> delegate_to_examiner
+   - 用户在回答题目/提交答案 -> delegate_to_grader
 3. 如果用户的意图不明确，先用自然语言追问清楚，再调用工具。
 4. 调用工具时，尽量从用户的话语中提取关键参数（文件路径、知识点、题数等）。
+
+## 判断用户是否在交答案
+
+如果系统刚出过考卷（state 中有 exam_paper），且用户的消息看起来像是在
+回答题目（如 "1.A, 2.B, 3.C" 或 "第一题选A" 等），你应该立刻调用
+delegate_to_grader，而不是自己评判对错。
 """
 
 # ---------------------------------------------------------------------------
@@ -93,13 +102,14 @@ def make_graph() -> "CompiledStateGraph":
     )
 
     # Only expose delegate tools to the agent (not MCP tools directly)
-    tools = [delegate_to_ingestor, delegate_to_tutor, delegate_to_examiner]
+    tools = [delegate_to_ingestor, delegate_to_tutor, delegate_to_examiner, delegate_to_grader]
 
     graph = create_react_agent(
         model=model,
         tools=tools,
         state_schema=EpistoState,
         prompt=SYSTEM_PROMPT,
+        checkpointer=MemorySaver(),
     )
 
     return graph
@@ -116,6 +126,9 @@ if __name__ == "__main__":
     print("=" * 50)
 
     graph = make_graph()
+
+    # MemorySaver requires a thread_id to scope state per conversation
+    config = {"configurable": {"thread_id": "user_1"}}
 
     while True:
         try:
@@ -134,7 +147,7 @@ if __name__ == "__main__":
         init_state = {"messages": [("user", user_input)]}
 
         print("\n--- 开始处理 ---")
-        for event in graph.stream(init_state, stream_mode="values"):
+        for event in graph.stream(init_state, config=config, stream_mode="values"):
             messages = event.get("messages", [])
             if messages:
                 last_msg = messages[-1]

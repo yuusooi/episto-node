@@ -1,0 +1,37 @@
+[
+  {
+    "id": 1,
+    "input": "给我出两道关于 React Hooks 的题",
+    "expected_concept": "useEffect, useState",
+    "expected_num_questions": 2,
+    "difficulty": "medium"
+  },
+  {
+    "id": 2,
+    "input": "帮我出3道简单的JavaScript闭包题目",
+    "expected_concept": "closure, 闭包, 作用域链",
+    "expected_num_questions": 3,
+    "difficulty": "easy"
+  },
+  {
+    "id": 3,
+    "input": "我想做5道关于TCP三次握手的练习题，难度要难",
+    "expected_concept": "TCP, 三次握手, SYN, ACK",
+    "expected_num_questions": 5,
+    "difficulty": "hard"
+  },
+  {
+    "id": 4,
+    "input": "出两道CSS Flexbox的题目考考我",
+    "expected_concept": "Flexbox, flex, align-items, justify-content",
+    "expected_num_questions": 2,
+    "difficulty": "medium"
+  },
+  {
+    "id": 5,
+    "input": "请生成4道关于Python装饰器的中等难度测试题",
+    "expected_concept": "decorator, 装饰器, @, 高阶函数",
+    "expected_num_questions": 4,
+    "difficulty": "medium"
+  }
+]

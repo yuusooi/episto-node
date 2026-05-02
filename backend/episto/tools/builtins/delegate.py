@@ -23,7 +23,9 @@ import os
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
+from langchain_core.exceptions import OutputParserException
 from langchain_openai import ChatOpenAI
+from pydantic import ValidationError
 from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.graph import END
 from langgraph.types import Command
@@ -333,7 +335,7 @@ def delegate_to_examiner(
             )
         )
 
-        # Step 4: Invoke sub-agent with structured output
+        # Step 4: Invoke sub-agent with structured output + retry on validation errors
         # NOTE: DeepSeek does NOT support response_format (json_schema),
         # so we use method="function_calling" which sends the schema as a tool.
         model = ChatOpenAI(
@@ -342,7 +344,45 @@ def delegate_to_examiner(
             openai_api_base=os.getenv("DEEPSEEK_BASE_URL"),
         )
         structured_model = model.with_structured_output(ExamPaper, method="function_calling")
-        exam: ExamPaper = structured_model.invoke([system_msg, human_msg])
+
+        MAX_RETRIES = 2
+        exam: ExamPaper | None = None
+        retry_messages = [system_msg, human_msg]
+
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                exam = structured_model.invoke(retry_messages)
+                # Validate basic structure
+                if not exam.questions or len(exam.questions) == 0:
+                    raise ValueError("ExamPaper 必须至少包含 1 道题")
+                for i, q in enumerate(exam.questions):
+                    if len(q.options) != 4:
+                        raise ValueError(
+                            f"第 {i+1} 题必须有 4 个选项，实际 {len(q.options)} 个"
+                        )
+                    if not q.answer or q.answer not in "ABCD":
+                        raise ValueError(
+                            f"第 {i+1} 题答案必须是 A/B/C/D，实际 '{q.answer}'"
+                        )
+                break  # Success
+            except (ValidationError, OutputParserException, ValueError) as e:
+                if attempt < MAX_RETRIES:
+                    logger.warning(
+                        "Examiner 第 %d/%d 次尝试失败: %s",
+                        attempt + 1, MAX_RETRIES + 1, e,
+                    )
+                    retry_messages.append(HumanMessage(
+                        content=(
+                            f"你上一次的输出格式有误。错误信息：{e}\n\n"
+                            f"请重新生成，确保：\n"
+                            f"1. 每道题恰好 4 个选项\n"
+                            f"2. 正确答案是 A/B/C/D 中的一个字母\n"
+                            f"3. 每道题都有 question、options、answer、explanation\n"
+                            f"4. 生成 {num_questions} 道题"
+                        )
+                    ))
+                else:
+                    raise
 
         logger.info(
             "Examiner generated '%s': %d questions, difficulty=%s",
@@ -377,8 +417,11 @@ def delegate_to_examiner(
         )
 
     except Exception as e:
-        error_msg = f"[Examiner] 出题失败: {e}"
-        logger.error("Examiner error: %s", e)
+        error_msg = (
+            f"[Examiner] 出题失败（已重试 {MAX_RETRIES} 次）。"
+            f"请稍后再试，或换一个知识点。"
+        )
+        logger.error("Examiner error after %d retries: %s", MAX_RETRIES, e)
         return Command(
             update={
                 "messages": [ToolMessage(error_msg, tool_call_id=tool_call_id)],
@@ -577,11 +620,16 @@ def delegate_to_grader(
 
         result_msg = "\n".join(result_lines)
 
-        # Step 6: Return Command — clear exam_paper and update wrong_questions
+        # Step 6: Return Command — clear exam_paper, store grading_data, update wrong_questions
         return Command(
             update={
                 "messages": [ToolMessage(result_msg, tool_call_id=tool_call_id)],
                 "exam_paper": None,  # Clear: exam session is over
+                "grading_data": {
+                    "results": results,
+                    "score": score,
+                    "feedback": feedback,
+                },
                 "wrong_questions": wrong_questions_update,
             },
             goto=END,

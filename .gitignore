@@ -19,5 +19,8 @@ Thumbs.db
 # IDE
 .vscode/
 
+# Cloned skills reference
+skills/
+
 # SQLite database
 *.db
